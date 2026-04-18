@@ -1,0 +1,33 @@
+# MI300X Bootcamp — pinned-ish deps (April 2026)
+# Install ROCm-specific torch FIRST from the AMD index, then these.
+#
+#   pip install --index-url https://download.pytorch.org/whl/rocm6.2 torch
+#   pip install -r requirements.txt
+#
+# If you prefer Unsloth's bundled install:
+#   pip install "unsloth[rocm]"
+
+transformers>=4.45
+datasets>=2.20
+accelerate>=0.34
+peft>=0.13
+trl>=0.12                 # SFTTrainer, DPOTrainer, GRPOTrainer
+bitsandbytes>=0.44        # 4-bit QLoRA
+unsloth                   # fast SFT/DPO/GRPO on MI300X
+vllm>=0.6                 # inference + synthetic data gen + GRPO rollouts
+wandb>=0.17
+huggingface_hub>=0.25
+
+# Data pipeline
+datasketch>=1.6           # MinHash dedup
+text-dedup>=0.5           # dedup toolkit
+
+# Evaluation
+lm-eval>=0.4              # GSM8K / MMLU / etc.
+
+# Quantization / deploy
+llm-compressor>=0.3       # FP8 export
+# llama.cpp (for GGUF) installed separately via git; see scripts/11_quantize.sh
+
+# Demo
+gradio>=5.0
