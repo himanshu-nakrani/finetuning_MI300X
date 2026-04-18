@@ -159,7 +159,14 @@ def main() -> None:
                 add_generation_prompt=True,
             )
             inputs = tokenizer(prompt, return_tensors="pt").to(trainer.model.device)
-            out = trainer.model.generate(**inputs, max_new_tokens=200, do_sample=False)
+            out = trainer.model.generate(
+                **inputs,
+                max_new_tokens=200,
+                do_sample=True,
+                temperature=0.7,
+                top_p=0.9,
+                repetition_penalty=1.1,
+            )
             ans = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:],
                                    skip_special_tokens=True)
             print(f"  Q: {q}\n  A: {ans.strip()[:200]}\n")

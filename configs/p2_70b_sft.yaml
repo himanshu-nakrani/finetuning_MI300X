@@ -1,12 +1,25 @@
-# P2 — Llama-3.1-70B LoRA SFT on curated base mix (Day 1, ~6.0 GPU-hr)
+# P2 — Qwen2.5-72B LoRA SFT on curated base mix (Day 1, ~6.0 GPU-hr)
 # Headline Day-1 deliverable. Tulu-3 mix, deduped + decontaminated to 20k.
 # Ships HF repo #2 (adapter + optionally merged bf16 shards).
+#
+# Model: Qwen/Qwen2.5-72B-Instruct (Sep 2024)
+#   - Non-gated (Llama-3.3 was gated, Llama-3.1 we have but is older)
+#   - 72B dense → ~144 GB bf16 weights + ~30-40 GB activations/optim with LoRA
+#     fits on a single MI300X (192 GB)
+#   - Stronger than Llama-3.1-70B on MMLU, MATH, GSM8K, HumanEval
+#   - Different chat template (ChatML), but tokenizer.apply_chat_template
+#     handles it transparently — no script changes required
+#
+# Other non-gated 70B-class options (one-line swap):
+#   - swiss-ai/Apertus-70B-Instruct-2509        (Apache 2.0, fully open data lineage)
+#   - Qwen/Qwen3-32B                            (32B Apache 2.0, ~3 GPU-hr instead of 6)
+#   - mistralai/Mistral-Small-24B-Instruct-2501 (24B Apache 2.0, very fast)
 
-run_name: llama-3.1-70b-instruct-mix-sft
+run_name: qwen2.5-72b-instruct-mix-sft
 seed: 42
 
 model:
-  name: meta-llama/Meta-Llama-3.1-70B-Instruct
+  name: Qwen/Qwen2.5-72B-Instruct
   max_seq_length: 4096
   load_in_4bit: false      # LoRA on bf16 (not QLoRA) — MI300X has the VRAM
   dtype: bfloat16
