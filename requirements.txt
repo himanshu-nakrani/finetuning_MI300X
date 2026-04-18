@@ -7,6 +7,10 @@
 # If you prefer Unsloth's bundled install:
 #   pip install "unsloth[rocm]"
 
+# Pandas: require 2.2+ so sdists compile against NumPy 2 (older vendored np_datetime.c uses removed PyArray_Descr.c_metadata).
+numpy>=1.26.4
+pandas>=2.2.3
+
 transformers>=4.45
 datasets>=2.20
 accelerate>=0.34
