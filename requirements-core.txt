@@ -4,6 +4,7 @@
 
 numpy>=1.26.4
 pandas>=2.2.3
+pyyaml>=6.0
 
 transformers>=4.45
 datasets>=2.20
@@ -16,7 +17,7 @@ wandb>=0.17
 huggingface_hub>=0.25
 
 datasketch>=1.6
-text-dedup>=0.4.1
+text-dedup>=0.4.1 
 
 lm-eval>=0.4
 llmcompressor>=0.3

@@ -1,0 +1,87 @@
+# =============================================================================
+# requirements-mi300x.txt — clean ROCm 6.2 / MI300X stack (verified Apr 2026)
+#
+# Verified working on:
+#   - AMD Instinct MI300X (gfx942), 192 GB VRAM
+#   - Ubuntu 24.04 / Python 3.12
+#   - ROCm 6.2 (driver: 6.2.41133)
+#
+# WHY THIS FILE EXISTS:
+#   `pip install torch` on PyPI gives you the CUDA wheel — fatal on AMD.
+#   Naively merging unsloth + bitsandbytes + transformers also pulls in
+#   torchao / xformers / llmcompressor which crash on torch 2.5 / ROCm.
+#   This file is the minimum stable surface area we landed on after a
+#   round of bisection.
+#
+# INSTALL (in a clean venv):
+#   python3.12 -m venv .venv && source .venv/bin/activate
+#   pip install --upgrade pip
+#   pip install -r requirements-mi300x.txt
+#
+# Order matters — torch is pinned BEFORE unsloth so that when unsloth's
+# unpinned `torch` dep is resolved, pip sees it's already satisfied with
+# the ROCm wheel and does not "upgrade" to the CUDA wheel from PyPI.
+#
+# AFTER INSTALL — set this once per shell (or in ~/.bashrc):
+#   export BNB_ROCM_ARCH=gfx942      # silences bitsandbytes rocminfo warnings
+#
+# Optional installs (skip until you actually need them):
+#   pip install -r requirements-mi300x-vllm.txt    # ROCm vLLM (only when serving)
+#   pip install gradio                              # demo UI
+# =============================================================================
+
+# ---- ROCm wheel index (only torch/torchvision/triton-rocm come from here) ----
+--extra-index-url https://download.pytorch.org/whl/rocm6.2
+
+# ---- Core: PyTorch on ROCm 6.2 ----
+# Pinning the +rocm6.2 build name forces pip to the extra index, since PyPI
+# does not ship that build. pytorch-triton-rocm is pulled transitively.
+torch==2.5.1+rocm6.2
+torchvision==0.20.1+rocm6.2
+
+# ---- HuggingFace stack ----
+transformers>=4.45,<4.60
+datasets>=2.20
+accelerate>=1.0
+peft>=0.13
+trl>=0.12
+huggingface_hub>=0.25
+tokenizers>=0.20
+safetensors>=0.4
+
+# ---- Unsloth (kernels + patched models). Installed AFTER torch is pinned. ----
+unsloth>=2026.4
+unsloth_zoo>=2026.4
+
+# ---- 4-bit / 8-bit quantization ----
+# bitsandbytes 0.44+ has multi-backend (HIP) support; needs BNB_ROCM_ARCH env
+# OR /opt/rocm/bin/rocminfo on PATH. Without either, 4-bit may degrade to
+# warp_size=64 default and emit a warning (still runs).
+bitsandbytes>=0.44
+
+# ---- Tracking / utils ----
+wandb>=0.17
+pyyaml>=6.0
+
+# ---- Data pipeline (MinHash dedup, n-gram decontamination) ----
+datasketch>=1.6
+text-dedup>=0.4.1
+
+# ---- Eval ----
+lm-eval>=0.4
+
+# =============================================================================
+# DELIBERATELY NOT INCLUDED (each one breaks something on ROCm + torch 2.5):
+#   - torchao         requires torch >= 2.6 (uses torch.int1)
+#   - xformers        CUDA-only; >=0.0.35 also requires torch >= 2.10
+#   - llmcompressor   requires torch 2.9..2.10
+#   - flash-attn      no public ROCm wheel; unsloth ships its own attention
+#   - triton          use pytorch-triton-rocm (pulled by torch above);
+#                     installing the upstream `triton` package overwrites it
+#   - vllm            PyPI build is CUDA-only; install ROCm build separately
+#                     (see requirements-mi300x-vllm.txt)
+#
+# If pip ever auto-installs any of these as a transitive dep, uninstall
+# explicitly:
+#   pip uninstall -y torchao xformers llmcompressor triton
+# =============================================================================

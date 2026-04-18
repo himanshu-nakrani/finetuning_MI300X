@@ -1,0 +1,32 @@
+# =============================================================================
+# requirements-mi300x-vllm.txt — ROCm vLLM (install separately, not Day 1)
+#
+# WHY SEPARATE:
+#   PyPI `vllm` is CUDA-only and would clobber torch back to a +cuXXX wheel.
+#   The ROCm vLLM build is published on a different index (or built from
+#   source), and as of April 2026 is most reliably pulled from AMD's wheels.
+#
+# INSTALL (in the SAME venv that has the rocm6.2 torch already):
+#   pip install -r requirements-mi300x-vllm.txt
+#
+# Then verify torch was NOT replaced:
+#   python -c "import torch; assert '+rocm' in torch.__version__, torch.__version__"
+# =============================================================================
+
+# Try the AMD-maintained ROCm wheels first; pip will fall through to PyPI
+# only if the package isn't there.
+--extra-index-url https://repo.radeon.com/rocm/manylinux/rocm-rel-6.2/
+
+# vLLM ROCm build. If this resolver fails (AMD index naming changes
+# occasionally), build from source instead:
+#   git clone https://github.com/vllm-project/vllm
+#   cd vllm && pip install -e . -v   # picks ROCm because torch is +rocm
+vllm>=0.6
+
+# Lightweight serving / generation helpers we want alongside vllm
+openai>=1.40              # `OpenAI(base_url=...)` client to talk to vllm
+sglang                    # awareness only; safe to skip if it fails to build
+
+# After install, sanity:
+#   python -c "import torch, vllm; print(torch.__version__, vllm.__version__)"
+#   vllm serve meta-llama/Meta-Llama-3.1-8B-Instruct --max-model-len 4096

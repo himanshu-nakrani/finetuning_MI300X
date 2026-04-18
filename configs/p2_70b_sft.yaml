@@ -1,0 +1,50 @@
+# P2 — Llama-3.1-70B LoRA SFT on curated base mix (Day 1, ~6.0 GPU-hr)
+# Headline Day-1 deliverable. Tulu-3 mix, deduped + decontaminated to 20k.
+# Ships HF repo #2 (adapter + optionally merged bf16 shards).
+
+run_name: llama-3.1-70b-instruct-mix-sft
+seed: 42
+
+model:
+  name: meta-llama/Meta-Llama-3.1-70B-Instruct
+  max_seq_length: 4096
+  load_in_4bit: false      # LoRA on bf16 (not QLoRA) — MI300X has the VRAM
+  dtype: bfloat16
+
+# Pre-built locally by data/prepare_base_mix.py:
+data:
+  jsonl_path: /scratch/finetune/data/base_mix_20k.jsonl   # one {"messages": [...]} per line
+  shuffle_seed: 42
+
+lora:
+  r: 32
+  alpha: 64
+  dropout: 0.05
+  bias: none
+  target_modules: all-linear
+  use_gradient_checkpointing: unsloth
+
+train:
+  output_dir: /scratch/finetune/outputs/p2_70b_sft
+  num_train_epochs: 2
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 16          # effective bs = 64
+  learning_rate: 2.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  optim: adamw_8bit
+  bf16: true
+  logging_steps: 5
+  save_strategy: steps
+  save_steps: 100                          # ~every 30 min at this throughput
+  save_total_limit: 3
+  report_to: wandb
+  # Hard wall-clock guard so an overrun can't eat Day 2's budget:
+  max_runtime_minutes: 360                 # 6.0 hr cap
+
+hub:
+  push: true
+  repo_id: null            # --hub_repo_id <user>/llama-3.1-70b-instruct-mix-sft
+  private: false
+  push_merged: false       # adapter only by default — merge in Day 5 quantize step

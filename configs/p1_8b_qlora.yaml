@@ -1,0 +1,52 @@
+# P1 — Llama-3.1-8B QLoRA warm-up (Day 1, ~1.5 GPU-hr)
+# Goal: end-to-end smoke of the real pipeline (Unsloth + TRL SFT) on a small model
+# before committing 6 hr to the 70B run. Ships HF repo #1.
+
+run_name: llama-3.1-8b-alpaca-qlora
+seed: 42
+
+model:
+  name: meta-llama/Meta-Llama-3.1-8B-Instruct
+  max_seq_length: 2048
+  load_in_4bit: true       # QLoRA NF4
+  dtype: null              # auto (bf16 on MI300X)
+
+data:
+  dataset: yahma/alpaca-cleaned
+  split: train             # ~52k after format
+  shuffle_seed: 42
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  use_gradient_checkpointing: unsloth
+
+train:
+  output_dir: /scratch/finetune/outputs/p1_8b_qlora
+  num_train_epochs: 3
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 2          # effective bs = 16
+  learning_rate: 2.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  optim: adamw_8bit
+  bf16: true
+  logging_steps: 10
+  save_strategy: steps
+  save_steps: 500
+  save_total_limit: 2
+  report_to: wandb
+
+eval:
+  vibe_check_prompts: 5    # quick generation samples after training
+  mmlu_subset: 500         # gated on lm-eval availability
+
+hub:
+  push: true
+  repo_id: null            # set via CLI: --hub_repo_id <user>/llama-3.1-8b-alpaca-qlora
+  private: false
+  push_merged: true        # also push merged fp16 weights (8B fits easily)

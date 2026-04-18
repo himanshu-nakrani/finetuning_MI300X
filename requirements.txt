@@ -1,37 +1,17 @@
-# MI300X Bootcamp — pinned-ish deps (April 2026)
-# Install ROCm-specific torch FIRST from the AMD index, then these.
+# MI300X Bootcamp — dependencies (April 2026)
 #
-#   pip install --index-url https://download.pytorch.org/whl/rocm6.2 torch
-#   pip install -r requirements.txt
+# 1) ROCm PyTorch (system index), then core stack (single resolver — avoids resolution-too-deep):
 #
-# If you prefer Unsloth's bundled install:
-#   pip install "unsloth[rocm]"
-
-# Pandas: require 2.2+ so sdists compile against NumPy 2 (older vendored np_datetime.c uses removed PyArray_Descr.c_metadata).
-numpy>=1.26.4
-pandas>=2.2.3
-
-transformers>=4.45
-datasets>=2.20
-accelerate>=0.34
-peft>=0.13
-trl>=0.12                 # SFTTrainer, DPOTrainer, GRPOTrainer
-bitsandbytes>=0.44        # 4-bit QLoRA
-unsloth                   # fast SFT/DPO/GRPO on MI300X
-vllm>=0.6                 # inference + synthetic data gen + GRPO rollouts
-wandb>=0.17
-huggingface_hub>=0.25
-
-# Data pipeline
-datasketch>=1.6           # MinHash dedup
-text-dedup>=0.4.1           # dedup toolkit
-
-# Evaluation
-lm-eval>=0.4              # GSM8K / MMLU / etc.
-
-# Quantization / deploy
-llmcompressor>=0.3        # FP8 export
-# llama.cpp (for GGUF) installed separately via git; see scripts/11_quantize.sh
-
-# Demo
-gradio>=5.0
+#     pip install --index-url https://download.pytorch.org/whl/rocm6.2 torch
+#     pip install -r requirements-core.txt
+#
+# 2) Optional extras — run as separate installs (do not merge into one requirements file):
+#
+#     pip install -r requirements-vllm.txt    # inference; CUDA-oriented on PyPI
+#     pip install -r requirements-demo.txt  # Gradio
+#
+# If you prefer Unsloth's bundled ROCm path instead of a manual torch line:
+#     pip install "unsloth[rocm]"
+#
+# This file only includes the core set so `pip install -r requirements.txt` stays resolvable.
+-r requirements-core.txt
