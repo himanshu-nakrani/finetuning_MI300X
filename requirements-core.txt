@@ -1,0 +1,22 @@
+# Core training / eval / quant (install first; keep vLLM + Gradio out of this graph).
+# After ROCm torch:
+#   pip install -r requirements-core.txt
+
+numpy>=1.26.4
+pandas>=2.2.3
+
+transformers>=4.45
+datasets>=2.20
+accelerate>=0.34
+peft>=0.13
+trl>=0.12
+bitsandbytes>=0.44
+unsloth
+wandb>=0.17
+huggingface_hub>=0.25
+
+datasketch>=1.6
+text-dedup>=0.4.1
+
+lm-eval>=0.4
+llmcompressor>=0.3

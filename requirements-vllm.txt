@@ -1,0 +1,6 @@
+# Optional: vLLM (large dependency tree; install AFTER requirements-core.txt).
+# PyPI vLLM wheels target CUDA torch — on ROCm MI300X use AMD/vLLM docs or skip until you have a matching wheel.
+#
+#   pip install -r requirements-vllm.txt
+
+vllm>=0.6

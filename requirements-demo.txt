@@ -1,0 +1,5 @@
+# Optional: Gradio UI (install AFTER requirements-core.txt to avoid pip resolution-too-deep).
+#
+#   pip install -r requirements-demo.txt
+
+gradio>=5.0
