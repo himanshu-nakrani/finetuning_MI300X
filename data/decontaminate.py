@@ -34,31 +34,74 @@ def ngrams(tokens: list[str], n: int) -> set[tuple[str, ...]]:
     return {tuple(tokens[i : i + n]) for i in range(len(tokens) - n + 1)}
 
 
+def _try_load(candidates: list[tuple[str, ...]]):
+    """Try (path, *args) tuples in order; return the first that loads, else None."""
+    last_err = None
+    for spec in candidates:
+        path, *rest = spec
+        try:
+            ds = load_dataset(path, *rest, split="test")
+            print(f"[decon]   loaded: {path} {' '.join(rest)}")
+            return ds
+        except Exception as e:
+            last_err = e
+            print(f"[decon]   miss:   {path} {' '.join(rest)}  ({type(e).__name__})")
+    print(f"[decon]   ALL CANDIDATES FAILED. last error: {last_err}")
+    return None
+
+
 def collect_benchmark_ngrams(names: list[str], n: int) -> set[tuple[str, ...]]:
     grams: set[tuple[str, ...]] = set()
+    skipped: list[str] = []
+
     for name in names:
         if name == "gsm8k":
-            ds = load_dataset("openai/gsm8k", "main", split="test")
+            ds = _try_load([
+                ("openai/gsm8k", "main"),
+                ("gsm8k", "main"),
+            ])
+            if ds is None:
+                skipped.append(name); continue
             for ex in ds:
                 grams |= ngrams(tokenize(ex["question"] + " " + ex["answer"]), n)
+
         elif name == "humaneval":
-            ds = load_dataset("openai_humaneval", split="test")
+            ds = _try_load([
+                ("openai_humaneval",),
+                ("openai/openai_humaneval",),
+            ])
+            if ds is None:
+                skipped.append(name); continue
             for ex in ds:
                 grams |= ngrams(
                     tokenize(ex["prompt"] + " " + ex.get("canonical_solution", "")), n
                 )
+
         elif name == "math":
-            try:
-                ds = load_dataset("hendrycks/competition_math", split="test")
-            except Exception:
-                ds = load_dataset("lighteval/MATH", split="test")
+            # Hendrycks MATH has bounced around HF. Try the live mirrors in order.
+            ds = _try_load([
+                ("HuggingFaceH4/MATH-500",),         # 500-sample eval slice (still useful for decon)
+                ("qwedsacf/competition_math",),      # community mirror of full MATH
+                ("EleutherAI/hendrycks_math", "all"),
+                ("lighteval/MATH",),
+                ("hendrycks/competition_math",),     # original (often gated/dead)
+            ])
+            if ds is None:
+                skipped.append(name); continue
             for ex in ds:
-                grams |= ngrams(
-                    tokenize(ex.get("problem", "") + " " + ex.get("solution", "")), n
-                )
+                # Field names differ across mirrors; try common ones.
+                problem = ex.get("problem") or ex.get("question") or ""
+                solution = ex.get("solution") or ex.get("answer") or ""
+                grams |= ngrams(tokenize(problem + " " + solution), n)
+
         else:
             raise ValueError(f"unknown benchmark: {name}")
+
         print(f"[decon] {name}: total grams so far = {len(grams):,}")
+
+    if skipped:
+        print(f"[decon] WARNING: skipped {skipped} (dataset unavailable). "
+              f"Decontamination still applied for the rest.")
     return grams
 
 
@@ -87,6 +130,12 @@ def main() -> None:
     print(f"[decon] building n-gram set for: {args.benchmarks} (n={args.n})")
     bench = collect_benchmark_ngrams(args.benchmarks, args.n)
     print(f"[decon] benchmark n-grams: {len(bench):,}")
+    if not bench:
+        raise SystemExit(
+            "[decon] FATAL: 0 benchmark n-grams collected — none of the requested "
+            "benchmarks could be loaded. Re-run with a smaller --benchmarks list "
+            "(e.g. --benchmarks gsm8k humaneval) or copy the dataset locally."
+        )
 
     kept = dropped = 0
     with open(args.input) as fin, open(args.output, "w") as fout:
