@@ -13,6 +13,10 @@ HF_CACHE="${SCRATCH}/cache"
 LOG_DIR="${SCRATCH}/logs"
 OUT_DIR="${SCRATCH}/outputs/preflight"
 
+# bnb on ROCm shells out to `rocminfo` to detect arch/warp. In tenant containers
+# that binary is often missing; hardcode for MI300X (gfx942) to silence warnings.
+export BNB_ROCM_ARCH="${BNB_ROCM_ARCH:-gfx942}"
+
 echo "=========================================="
 echo " MI300X Bootcamp — Preflight"
 echo " $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -87,18 +91,31 @@ PY
 # -------- 5. Key packages --------
 echo "[5/8] Required packages:"
 python - <<'PY'
-mods = ["transformers", "datasets", "peft", "trl", "accelerate",
-        "unsloth", "vllm", "wandb", "bitsandbytes"]
-missing = []
-for m in mods:
+# Import unsloth FIRST so its monkey-patches land before transformers/peft/trl
+# (otherwise unsloth prints a warning and some kernel fast-paths are skipped).
+required_first = ["unsloth"]
+required = ["transformers", "datasets", "peft", "trl", "accelerate",
+            "wandb", "bitsandbytes"]
+optional = ["vllm"]      # not needed until Day 2 (synth gen)
+
+missing_req = []
+for m in required_first + required:
     try:
         mod = __import__(m)
-        print(f"  OK {m} {getattr(mod,'__version__','?')}")
+        print(f"  OK       {m} {getattr(mod,'__version__','?')}")
     except Exception as e:
-        missing.append(m)
-        print(f"  MISSING {m}: {e}")
-if missing:
-    raise SystemExit(f"Install missing: pip install {' '.join(missing)}")
+        missing_req.append(m)
+        print(f"  MISSING  {m}: {e}")
+
+for m in optional:
+    try:
+        mod = __import__(m)
+        print(f"  OK opt   {m} {getattr(mod,'__version__','?')}")
+    except Exception as e:
+        print(f"  WARN opt {m}: not installed (only needed Day 2+)")
+
+if missing_req:
+    raise SystemExit(f"Install missing required: pip install {' '.join(missing_req)}")
 PY
 
 # -------- 6. HF auth --------
