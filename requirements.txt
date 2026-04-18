@@ -26,7 +26,7 @@ text-dedup>=0.4.1           # dedup toolkit
 lm-eval>=0.4              # GSM8K / MMLU / etc.
 
 # Quantization / deploy
-llm-compressor>=0.3       # FP8 export
+llmcompressor>=0.3        # FP8 export
 # llama.cpp (for GGUF) installed separately via git; see scripts/11_quantize.sh
 
 # Demo
