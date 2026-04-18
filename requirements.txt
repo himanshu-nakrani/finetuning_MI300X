@@ -20,7 +20,7 @@ huggingface_hub>=0.25
 
 # Data pipeline
 datasketch>=1.6           # MinHash dedup
-text-dedup>=0.5           # dedup toolkit
+text-dedup>=0.4.1           # dedup toolkit
 
 # Evaluation
 lm-eval>=0.4              # GSM8K / MMLU / etc.
