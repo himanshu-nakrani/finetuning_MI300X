@@ -55,14 +55,33 @@ import sys, platform
 print("python:", sys.version.split()[0], platform.platform())
 import torch
 print("torch:", torch.__version__)
-print("cuda.is_available:", torch.cuda.is_available())
-if torch.cuda.is_available():
-    print("device:", torch.cuda.get_device_name(0))
-    print("device_count:", torch.cuda.device_count())
-    free, total = torch.cuda.mem_get_info()
-    print(f"mem free/total (GB): {free/1e9:.1f} / {total/1e9:.1f}")
-else:
-    raise SystemExit("torch.cuda.is_available() is False — ROCm/torch not wired up")
+print("torch.version.cuda:", torch.version.cuda)
+print("torch.version.hip: ", torch.version.hip)
+
+# Reject CUDA wheels on a ROCm box — common footgun (pip install torch grabs +cuXXX from PyPI).
+if "+cu" in torch.__version__ or (torch.version.cuda and not torch.version.hip):
+    raise SystemExit(
+        "ERROR: this is a CUDA build of torch (" + torch.__version__ + ").\n"
+        "Reinstall the ROCm wheel:\n"
+        "  pip uninstall -y torch torchvision torchaudio pynvml triton\n"
+        "  pip install --index-url https://download.pytorch.org/whl/rocm6.2 torch\n"
+        "(or:  pip install \"unsloth[rocm]\"  to let unsloth pin the stack)"
+    )
+
+if not torch.version.hip:
+    raise SystemExit("ERROR: torch has no HIP runtime; not a ROCm build.")
+
+if not torch.cuda.is_available():
+    raise SystemExit(
+        "torch.cuda.is_available() is False even though this is a ROCm build.\n"
+        "Check: rocm-smi sees the GPU, HSA_OVERRIDE_GFX_VERSION is unset, "
+        "and the GPU is not in a low-power state (rocm-smi --setperflevel high)."
+    )
+
+print("device:", torch.cuda.get_device_name(0))
+print("device_count:", torch.cuda.device_count())
+free, total = torch.cuda.mem_get_info()
+print(f"mem free/total (GB): {free/1e9:.1f} / {total/1e9:.1f}")
 PY
 
 # -------- 5. Key packages --------
