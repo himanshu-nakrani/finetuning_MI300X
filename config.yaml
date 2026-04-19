@@ -1,0 +1,21 @@
+paths:
+  input: "data/input"
+  output:
+    parsed: "data/parsed"
+    generated: "data/generated"
+    curated: "data/curated"
+    final: "data/final"
+llm:
+  provider: "vllm"
+vllm:
+  api_base: "http://localhost:8001/v1"
+  model: "unsloth/Llama-3.3-70B-Instruct"
+prompts:
+  cot_generation: |
+    Create 20 complex logical reasoning problems with detailed Chain-of-Thought solutions.
+    Problems should cover: math, logic puzzles, code reasoning, and multi-step inference.
+    Each problem must include:
+    - Clear problem statement
+    - Step-by-step reasoning
+    - Final answer
+    Return ONLY valid JSON with format: {"problems": [{"question": "...", "reasoning": "...", "answer": "..."}]}
