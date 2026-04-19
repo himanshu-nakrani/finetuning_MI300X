@@ -46,7 +46,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_synth_jsonl(path: str, tokenizer, max_seq_length: int, seed: int):
-    """Load {prompt,response,...} JSONL → HF dataset with rendered chat 'text'."""
+    """Load reasoning JSONL in either supported format.
+
+    Accepted row shapes:
+      1) {"prompt": "...", "response": "..."}  (old synth-gen format)
+      2) {"messages": [{"role": "...", "content": "..."}, ...]}  (current reasoning-mix format)
+    """
     from datasets import Dataset
 
     p = Path(path)
@@ -68,22 +73,46 @@ def load_synth_jsonl(path: str, tokenizer, max_seq_length: int, seed: int):
                 rec = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            # Newer pipeline format: pre-built chat messages
+            if isinstance(rec.get("messages"), list) and rec["messages"]:
+                msgs = []
+                for m in rec["messages"]:
+                    if not isinstance(m, dict):
+                        continue
+                    role = m.get("role")
+                    content = (m.get("content") or "").strip()
+                    if role in {"system", "user", "assistant"} and content:
+                        msgs.append({"role": role, "content": content})
+                # Must include at least one user and assistant turn for SFT
+                has_user = any(m["role"] == "user" for m in msgs)
+                has_asst = any(m["role"] == "assistant" for m in msgs)
+                if has_user and has_asst:
+                    rows.append({"messages": msgs, "domain": rec.get("domain", "")})
+                continue
+
+            # Legacy synth format: prompt/response pair
             prompt = (rec.get("prompt") or "").strip()
             response = (rec.get("response") or "").strip()
-            if not prompt or not response:
-                continue
-            rows.append({"prompt": prompt, "response": response,
-                         "domain": rec.get("domain", "")})
+            if prompt and response:
+                rows.append({
+                    "messages": [
+                        {"role": "user", "content": prompt},
+                        {"role": "assistant", "content": response},
+                    ],
+                    "domain": rec.get("domain", ""),
+                })
 
     print(f"[p3] loaded {len(rows):,} synth rows from {path}")
 
+    if not rows:
+        raise ValueError(
+            f"[p3] loaded 0 rows from {path}. "
+            f"Expected either 'messages' rows or 'prompt/response' rows."
+        )
+
     def render(ex):
-        msgs = [
-            {"role": "user", "content": ex["prompt"]},
-            {"role": "assistant", "content": ex["response"]},
-        ]
         return {"text": tokenizer.apply_chat_template(
-            msgs, tokenize=False, add_generation_prompt=False)}
+            ex["messages"], tokenize=False, add_generation_prompt=False)}
 
     ds = Dataset.from_list(rows).shuffle(seed=seed)
     ds = ds.map(render, remove_columns=ds.column_names, num_proc=4)
