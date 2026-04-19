@@ -5,7 +5,7 @@
 set -euo pipefail
 
 cd /scratch/reasoning_booster
-source unsloth_env/bin/activate
+source .venv/bin/activate
 
 echo "=========================================="
 echo " Starting vLLM server on port 8001"

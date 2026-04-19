@@ -36,15 +36,18 @@ On the droplet:
 ```bash
 cd /scratch/reasoning_booster
 chmod +x *.sh
-bash 01_reasoning_booster_setup.sh
+bash install_mi300x.sh
 ```
 
 This will:
-- Create virtual environment
-- Install PyTorch for ROCm
+- Create virtual environment at `.venv`
+- Install PyTorch for ROCm 6.2 (verified working configuration)
 - Install Unsloth (AMD native)
-- Install vLLM, TRL, and other tools
-- Verify installation
+- Install TRL, PEFT, and other tools
+- Set BNB_ROCM_ARCH environment variable
+- Verify installation with ROCm-specific checks
+
+**Note:** The script uses the proven `requirements-mi300x.txt` configuration that specifically prevents CUDA package conflicts.
 
 ## Step 4: Authenticate
 
@@ -61,7 +64,7 @@ wandb login
 
 ```bash
 cd /scratch/reasoning_booster
-source unsloth_env/bin/activate
+source unsloth_sloth_sloth_env/bin/activate
 bash 02_start_vllm.sh
 ```
 
@@ -73,7 +76,7 @@ Open a new SSH session or use `tmux`/`screen`:
 
 ```bash
 cd /scratch/reasoning_booster
-source unsloth_env/bin/activate
+source .venv/bin/activate
 bash 03_generate_synth_data.sh
 ```
 
@@ -85,7 +88,7 @@ After data generation completes:
 
 ```bash
 cd /scratch/reasoning_booster
-source unsloth_env/bin/activate
+source .venv/bin/activate
 python train_sft.py
 ```
 
@@ -99,8 +102,9 @@ After SFT training completes:
 
 ```bash
 cd /scratch/reasoning_booster
-source unsloth_env/bin/activate
+source .venv/bin/activate
 python train_grpo.py
+
 ```
 
 This will take 8 hours. The model will be saved to:
@@ -113,7 +117,7 @@ After GRPO training completes:
 
 ```bash
 cd /scratch/reasoning_booster
-source unsloth_env/bin/activate
+source .venv/bin/activate
 bash 05_eval_and_push.sh
 ```
 

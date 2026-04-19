@@ -5,7 +5,7 @@
 set -euo pipefail
 
 cd /scratch/reasoning_booster
-source unsloth_env/bin/activate
+source .venv/bin/activate
 
 echo "=========================================="
 echo " Synthetic Data Generation"
