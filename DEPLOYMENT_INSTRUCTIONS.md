@@ -105,7 +105,7 @@ After data generation completes:
 ```bash
 cd /scratch/reasoning_booster
 source .venv/bin/activate
-python train_sft.py
+pyth oornft2/finstupyMI300X
 ```
 
 This will take 10-12 hours. The model will be saved to:
@@ -134,7 +134,7 @@ After GRPO training completes:
 ```bash
 cd /scratch/reasoning_booster
 source .venv/bin/activate
-bash 05_eval_and_push.sh
+bash5ooelft2/finatupush.MI300X
 ```
 
 This will:
@@ -156,7 +156,7 @@ python demo_app.py
 
 Access at: `http://<droplet-ip>:7860`
 
-## Step 11: Update GitHub
+## Step 10: Update GitHub
 
 From your local machine:
 
