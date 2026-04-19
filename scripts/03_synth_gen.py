@@ -186,12 +186,33 @@ def gen_offline(prompts: list[dict], args) -> list[dict]:
 def gen_unsloth(prompts: list[dict], args) -> list[dict]:
     """Unsloth FastLanguageModel batched generation — no vLLM needed.
 
-    ~2-3x faster than plain HF .generate because Unsloth ships fused attention
-    and disables HF's Python-level overhead. Zero extra dependencies (we use
-    Unsloth for training already).
+    Writes raw completions to <output>.raw.jsonl as each batch finishes so a
+    kill/crash doesn't lose work. The raw file is loaded back on resume.
     """
     import torch
     from unsloth import FastLanguageModel
+
+    # Resume support — skip any seeds whose prompt already has a completion written.
+    raw_path = Path(args.output).with_suffix(".raw.jsonl")
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    seen: set[str] = set()
+    records: list[dict] = []
+    if raw_path.exists():
+        with raw_path.open() as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                    seen.add(r["prompt"])
+                    records.append(r)
+                except Exception:
+                    continue
+        print(f"[gen-unsloth] RESUMING: {len(seen):,} prompts already done "
+              f"from {raw_path}")
+
+    todo = [s for s in prompts if s["prompt"] not in seen]
+    if not todo:
+        print("[gen-unsloth] all prompts already generated; skipping load")
+        return records
 
     print(f"[gen-unsloth] loading {args.merged_model}")
     model, tok = FastLanguageModel.from_pretrained(
@@ -205,60 +226,67 @@ def gen_unsloth(prompts: list[dict], args) -> list[dict]:
         tok.pad_token_id = tok.eos_token_id
     tok.padding_side = "left"
 
-    rendered = [render_chat_prompt(tok, s["prompt"]) for s in prompts]
+    rendered = [render_chat_prompt(tok, s["prompt"]) for s in todo]
     n_prompts = len(rendered)
     print(f"[gen-unsloth] generating {n_prompts} prompts × {args.n_per_prompt} "
-          f"(batch_size={args.batch_size})...")
+          f"(batch_size={args.batch_size})  [skipped {len(seen)} already-done]")
 
-    records: list[dict] = []
     t0 = time.time()
-    for i in range(0, n_prompts, args.batch_size):
-        batch_prompts = rendered[i : i + args.batch_size]
-        batch_seeds = prompts[i : i + args.batch_size]
+    # Append mode so resume writes keep prior progress
+    raw_f = raw_path.open("a", buffering=1)  # line-buffered
+    try:
+        for i in range(0, n_prompts, args.batch_size):
+            batch_prompts = rendered[i : i + args.batch_size]
+            batch_seeds = todo[i : i + args.batch_size]
 
-        enc = tok(batch_prompts, return_tensors="pt", padding=True,
-                  truncation=True,
-                  max_length=args.max_model_len - args.max_new_tokens)
-        enc = {k: v.to(model.device) for k, v in enc.items()}
-        input_lens = enc["input_ids"].shape[1]
+            enc = tok(batch_prompts, return_tensors="pt", padding=True,
+                      truncation=True,
+                      max_length=args.max_model_len - args.max_new_tokens)
+            enc = {k: v.to(model.device) for k, v in enc.items()}
+            input_lens = enc["input_ids"].shape[1]
 
-        with torch.inference_mode():
-            out = model.generate(
-                **enc,
-                max_new_tokens=args.max_new_tokens,
-                do_sample=True,
-                temperature=args.temperature,
-                top_p=args.top_p,
-                num_return_sequences=args.n_per_prompt,
-                pad_token_id=tok.pad_token_id,
-                eos_token_id=tok.eos_token_id,
-                repetition_penalty=1.05,
-                use_cache=True,
-            )
-        out = out[:, input_lens:]
-        decoded = tok.batch_decode(out, skip_special_tokens=True)
+            with torch.inference_mode():
+                out = model.generate(
+                    **enc,
+                    max_new_tokens=args.max_new_tokens,
+                    do_sample=True,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    num_return_sequences=args.n_per_prompt,
+                    pad_token_id=tok.pad_token_id,
+                    eos_token_id=tok.eos_token_id,
+                    repetition_penalty=1.05,
+                    use_cache=True,
+                )
+            out = out[:, input_lens:]
+            decoded = tok.batch_decode(out, skip_special_tokens=True)
 
-        for s_idx, seed in enumerate(batch_seeds):
-            for k in range(args.n_per_prompt):
-                completion = decoded[s_idx * args.n_per_prompt + k]
-                records.append({
-                    "prompt": seed["prompt"],
-                    "response": completion.strip(),
-                    "domain": seed["domain"],
-                    "ground_truth": seed.get("ground_truth"),
-                    "is_evol": seed.get("is_evol", False),
-                    "stop_reason": "length_or_eos",
-                })
+            for s_idx, seed in enumerate(batch_seeds):
+                for k in range(args.n_per_prompt):
+                    completion = decoded[s_idx * args.n_per_prompt + k]
+                    rec = {
+                        "prompt": seed["prompt"],
+                        "response": completion.strip(),
+                        "domain": seed["domain"],
+                        "ground_truth": seed.get("ground_truth"),
+                        "is_evol": seed.get("is_evol", False),
+                        "stop_reason": "length_or_eos",
+                    }
+                    records.append(rec)
+                    raw_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
-        done = min(i + args.batch_size, n_prompts)
-        elapsed = time.time() - t0
-        rate = done / max(elapsed, 1)
-        eta_min = (n_prompts - done) / max(rate, 1e-6) / 60
-        print(f"[gen-unsloth] {done}/{n_prompts} prompts ({rate:.2f}/s, "
-              f"ETA {eta_min:.0f} min, {len(records)} completions)")
+            done = min(i + args.batch_size, n_prompts)
+            elapsed = time.time() - t0
+            rate = done / max(elapsed, 1)
+            eta_min = (n_prompts - done) / max(rate, 1e-6) / 60
+            print(f"[gen-unsloth] {done}/{n_prompts} prompts ({rate:.2f}/s, "
+                  f"ETA {eta_min:.0f} min, {len(records)} completions total)",
+                  flush=True)
+    finally:
+        raw_f.close()
 
     print(f"[gen-unsloth] done in {(time.time() - t0) / 60:.1f} min, "
-          f"{len(records)} completions")
+          f"{len(records)} completions total (incl. resumed)")
     return records
 
 
@@ -283,16 +311,36 @@ def gen_hf(prompts: list[dict], args) -> list[dict]:
     )
     model.eval()
 
-    rendered = [render_chat_prompt(tok, s["prompt"]) for s in prompts]
+    # Resume support (shared with gen_unsloth)
+    raw_path = Path(args.output).with_suffix(".raw.jsonl")
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    seen: set[str] = set()
+    records: list[dict] = []
+    if raw_path.exists():
+        with raw_path.open() as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                    seen.add(r["prompt"])
+                    records.append(r)
+                except Exception:
+                    continue
+        print(f"[gen-hf] RESUMING: {len(seen):,} already done from {raw_path}")
+    todo = [s for s in prompts if s["prompt"] not in seen]
+    if not todo:
+        print("[gen-hf] all prompts already generated")
+        return records
+
+    rendered = [render_chat_prompt(tok, s["prompt"]) for s in todo]
     n_prompts = len(rendered)
     print(f"[gen-hf] generating {n_prompts} prompts × {args.n_per_prompt} completions "
-          f"(batch_size={args.batch_size})...")
+          f"(batch_size={args.batch_size})  [skipped {len(seen)}]")
 
-    records: list[dict] = []
     t0 = time.time()
+    raw_f = raw_path.open("a", buffering=1)
     for i in range(0, n_prompts, args.batch_size):
         batch_prompts = rendered[i : i + args.batch_size]
-        batch_seeds = prompts[i : i + args.batch_size]
+        batch_seeds = todo[i : i + args.batch_size]
 
         enc = tok(batch_prompts, return_tensors="pt", padding=True,
                   truncation=True, max_length=args.max_model_len - args.max_new_tokens)
@@ -318,24 +366,28 @@ def gen_hf(prompts: list[dict], args) -> list[dict]:
         for s_idx, seed in enumerate(batch_seeds):
             for k in range(args.n_per_prompt):
                 completion = decoded[s_idx * args.n_per_prompt + k]
-                records.append({
+                rec = {
                     "prompt": seed["prompt"],
                     "response": completion.strip(),
                     "domain": seed["domain"],
                     "ground_truth": seed.get("ground_truth"),
                     "is_evol": seed.get("is_evol", False),
                     "stop_reason": "length_or_eos",
-                })
+                }
+                records.append(rec)
+                raw_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
         done = min(i + args.batch_size, n_prompts)
         elapsed = time.time() - t0
         rate = done / max(elapsed, 1)
         eta_min = (n_prompts - done) / max(rate, 1e-6) / 60
         print(f"[gen-hf] {done}/{n_prompts} prompts ({rate:.2f}/s, "
-              f"ETA {eta_min:.0f} min, {len(records)} completions so far)")
+              f"ETA {eta_min:.0f} min, {len(records)} completions so far)",
+              flush=True)
+    raw_f.close()
 
     print(f"[gen-hf] done in {(time.time() - t0) / 60:.1f} min, "
-          f"{len(records)} completions")
+          f"{len(records)} completions total (incl. resumed)")
     return records
 
 
