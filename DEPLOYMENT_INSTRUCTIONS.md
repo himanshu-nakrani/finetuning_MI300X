@@ -60,17 +60,33 @@ huggingface-cli login
 wandb login
 ```
 
-## Step 5: Start vLLM Server (Terminal 1)
+## Step 5: Install vLLM (ROCm version)
+
+The PyPI vLLM is CUDA-only. Install the ROCm version:
 
 ```bash
 cd /scratch/reasoning_booster
-source unsloth_sloth_sloth_env/bin/activate
+source .venv/bin/activate
+pip uninstall -y vllm || true
+pip install -r requirements-mi300x-vllm.txt
+```
+
+Verify torch wasn't replaced:
+```bash
+python -c "import torch; assert '+rocm' in torch.__version__, torch.__version__; print('OK')"
+```
+
+## Step 6: Start vLLM Server (Terminal 1)
+
+```bash
+cd /scratch/reasoning_booster
+source .venv/bin/activate
 bash 02_start_vllm.sh
 ```
 
 Keep this terminal open. The server will run on port 8001.
 
-## Step 6: Generate Synthetic Data (Terminal 2)
+## Step 7: Generate Synthetic Data (Terminal 2)
 
 Open a new SSH session or use `tmux`/`screen`:
 
@@ -96,7 +112,7 @@ This will take 10-12 hours. The model will be saved to:
 - `reasoning_booster_sft_merged/` (merged 16-bit)
 - `reasoning_booster_lora/` (LoRA adapter)
 
-## Step 8: Train GRPO
+## Step 10: Train GRPO
 
 After SFT training completes:
 
@@ -111,7 +127,7 @@ This will take 8 hours. The model will be saved to:
 - `reasoning_booster_grpo_merged/` (merged 16-bit)
 - `reasoning_booster_grpo_lora/` (LoRA adapter)
 
-## Step 9: Evaluate and Push
+## Step 11: Evaluate and Push
 
 After GRPO training completes:
 
@@ -127,7 +143,7 @@ This will:
 - Compare with baseline
 - Push models and dataset to Hugging Face
 
-## Step 10: Create Gradio Demo (Optional)
+## Step 12: Create Gradio Demo (Optional)
 
 On the droplet or locally:
 
