@@ -17,12 +17,28 @@ python3 -m venv unsloth_env
 source unsloth_env/bin/activate
 
 echo "[2/6] Detecting ROCm version..."
-ROCM_TAG="$(amd-smi version 2>/dev/null | awk -F'ROCm version: ' 'NF>1{split($2,a,"."); print "rocm"a[1]"."a[2]}' || echo rocm7.0)"
-echo "Detected ROCm tag: $ROCM_TAG"
+# Try multiple methods to detect ROCm
+if command -v rocm-smi &> /dev/null; then
+    ROCM_VERSION=$(rocm-smi --version 2>/dev/null | grep -oP 'ROCm version: \K[\d.]+' || echo "")
+elif command -v amd-smi &> /dev/null; then
+    ROCM_VERSION=$(amd-smi version 2>/dev/null | grep -oP 'ROCm version: \K[\d.]+' || echo "")
+else
+    ROCM_VERSION=""
+fi
 
-echo "[3/6] Installing PyTorch for ROCm..."
+if [ -n "$ROCM_VERSION" ]; then
+    ROCM_MAJOR=$(echo $ROCM_VERSION | cut -d. -f1)
+    ROCM_MINOR=$(echo $ROCM_VERSION | cut -d. -f2)
+    ROCM_TAG="rocm${ROCM_MAJOR}.${ROCM_MINOR}"
+    echo "Detected ROCm version: $ROCM_VERSION -> tag: $ROCM_TAG"
+else
+    echo "Could not detect ROCm version, defaulting to rocm6.2"
+    ROCM_TAG="rocm6.2"
+fi
+
+echo "[3/6] Installing PyTorch for ROCm ($ROCM_TAG)..."
 pip install --upgrade pip wheel
-pip install torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/$ROCM_TAG" --upgrade --force-reinstall
+pip install torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/$ROCM_TAG"
 
 echo "[4/6] Installing Unsloth (AMD native)..."
 pip install --no-deps unsloth unsloth-zoo
