@@ -1,30 +1,23 @@
-# P3 — Reasoning-Booster SFT (Day 2, ~6.5 GPU-hr)
-# Continues training the P2 LoRA adapter on the 15k synthetic reasoning/code
-# mix produced by 03_synth_gen.py. We do NOT restart LoRA — we keep the same
-# adapter so that DPO (P4) and GRPO (P5) can stay anchored to a single
-# parameter-geometry lineage.
-#
-# Same base model as P2 (must be: PEFT requires the adapter's base to match).
+# P3 — Reasoning SFT on public curated mix (Project A, ~4.0 GPU-hr)
+# Continues P2's LoRA adapter on a 10k reasoning mix built by
+# data/prepare_reasoning_mix.py (OpenMathInstruct-2 + CodeFeedback +
+# optional self-generated seeds from the prior vLLM attempt).
 
-run_name: qwen2.5-72b-reasoning-booster-sft
+run_name: qwen2.5-72b-reasoning-sft
 seed: 42
 
 model:
   name: Qwen/Qwen2.5-72B-Instruct
-  max_seq_length: 4096
+  max_seq_length: 2048                 # reasoning examples are typically <1500 toks
   load_in_4bit: false
   dtype: bfloat16
-  # Continue training the existing P2 adapter rather than init a new one.
   resume_adapter: /scratch/finetune/outputs/p2_70b_sft/adapter
 
 data:
-  # Default to the 5k HF-fallback dataset; if you ran the full 15k vLLM gen,
-  # point this at synth_reasoning_15k.jsonl instead.
-  jsonl_path: /scratch/finetune/data/synth_reasoning_5k.jsonl
+  jsonl_path: /scratch/finetune/data/reasoning_mix_10k.jsonl
   shuffle_seed: 42
 
-# Used only if resume_adapter is null (re-init). Same target list as P2 to
-# preserve the parameter shape if anyone ever wants to merge stage-by-stage.
+# Used only if resume_adapter is null. Same shape as P2.
 lora:
   r: 32
   alpha: 64
@@ -42,10 +35,10 @@ lora:
 
 train:
   output_dir: /scratch/finetune/outputs/p3_reasoning_sft
-  num_train_epochs: 4                      # bumped 3→4 to compensate for smaller dataset
+  num_train_epochs: 2
   per_device_train_batch_size: 4
-  gradient_accumulation_steps: 8           # effective bs = 32 (paper rec for reasoning)
-  learning_rate: 2.0e-4                    # warm start; cosine to 2e-5 over the run
+  gradient_accumulation_steps: 8           # effective bs = 32
+  learning_rate: 1.0e-4                    # half of P2's LR — continuation training
   lr_scheduler_type: cosine
   warmup_ratio: 0.03
   weight_decay: 0.0
@@ -53,13 +46,13 @@ train:
   bf16: true
   logging_steps: 5
   save_strategy: steps
-  save_steps: 100
+  save_steps: 50
   save_total_limit: 3
   report_to: wandb
-  max_runtime_minutes: 390                 # 6.5 hr cap
+  max_runtime_minutes: 240                 # 4.0 hr cap (was 6.5 in the old plan)
 
 hub:
   push: true
-  repo_id: null            # --hub_repo_id <user>/qwen2.5-72b-reasoning-booster-sft
+  repo_id: null            # --hub_repo_id <user>/qwen2.5-72b-reasoning-sft
   private: false
   push_merged: false

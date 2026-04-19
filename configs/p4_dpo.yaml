@@ -1,0 +1,60 @@
+# P4 — DPO on preference pairs (Project A headline, ~4.0 GPU-hr)
+# Continues the P3 adapter with DPO using TRL's DPOTrainer.
+
+run_name: qwen2.5-72b-reasoning-dpo
+seed: 42
+
+model:
+  name: Qwen/Qwen2.5-72B-Instruct
+  max_seq_length: 2048
+  max_prompt_length: 1024
+  load_in_4bit: false
+  dtype: bfloat16
+  resume_adapter: /scratch/finetune/outputs/p3_reasoning_sft/adapter
+
+data:
+  jsonl_path: /scratch/finetune/data/pref_pairs_3k.jsonl
+  shuffle_seed: 42
+
+lora:
+  r: 32
+  alpha: 64
+  dropout: 0.0
+  bias: none
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  use_gradient_checkpointing: unsloth
+
+train:
+  output_dir: /scratch/finetune/outputs/p4_dpo
+  num_train_epochs: 1                      # DPO typically 1 epoch
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 8           # effective bs = 16 (DPO smaller bs than SFT)
+  learning_rate: 5.0e-7                    # DPO LR is 100-500x smaller than SFT
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.1                        # a bit more warmup for DPO stability
+  weight_decay: 0.0
+  optim: adamw_8bit
+  bf16: true
+  logging_steps: 5
+  save_strategy: steps
+  save_steps: 50
+  save_total_limit: 2
+  report_to: wandb
+  max_runtime_minutes: 240                 # 4.0 hr cap
+
+dpo:
+  beta: 0.1                                # KL strength; 0.1 is TRL default
+  loss_type: sigmoid                       # standard DPO
+
+hub:
+  push: true
+  repo_id: null            # --hub_repo_id <user>/qwen2.5-72b-reasoning-dpo
+  private: false
+  push_merged: false

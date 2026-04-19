@@ -1,0 +1,42 @@
+# Project B, ablation C: Llama-3.1-8B FULL fine-tune (no LoRA) on the
+# reasoning mix. 2 epochs because full FT is ~2-3x slower per epoch.
+#
+# 8B bf16 + Adam states ≈ 96 GB → fits easily on 192 GB MI300X.
+
+run_name: llama-3.1-8b-reasoning-fullft
+seed: 42
+
+model:
+  name: meta-llama/Meta-Llama-3.1-8B-Instruct
+  max_seq_length: 2048
+  load_in_4bit: false     # full precision (no QLoRA) for full FT
+  dtype: bfloat16
+
+data:
+  jsonl_path: /scratch/finetune/data/reasoning_mix_10k.jsonl
+  shuffle_seed: 42
+
+mode: full_ft             # signals the runner to skip get_peft_model
+
+train:
+  output_dir: /scratch/finetune/outputs/ab_fullft
+  num_train_epochs: 2
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4           # effective bs = 16
+  learning_rate: 5.0e-6                    # ~40x smaller than LoRA — full FT
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  optim: adamw_8bit
+  bf16: true
+  logging_steps: 10
+  save_strategy: steps
+  save_steps: 200
+  save_total_limit: 1                      # full weights are huge, keep 1 only
+  report_to: wandb
+  max_runtime_minutes: 180                 # 3.0 hr cap
+
+hub:
+  push: true
+  repo_id: null            # --hub_repo_id <user>/llama-3.1-8b-reasoning-fullft
+  private: false
