@@ -12,43 +12,46 @@ echo "=========================================="
 mkdir -p /scratch/reasoning_booster
 cd /scratch/reasoning_booster
 
-echo "[1/6] Creating virtual environment..."
+echo "[1/5] Creating virtual environment..."
 python3 -m venv unsloth_env
 source unsloth_env/bin/activate
 
-echo "[2/6] Detecting ROCm version..."
-# Try multiple methods to detect ROCm
-if command -v rocm-smi &> /dev/null; then
-    ROCM_VERSION=$(rocm-smi --version 2>/dev/null | grep -oP 'ROCm version: \K[\d.]+' || echo "")
-elif command -v amd-smi &> /dev/null; then
-    ROCM_VERSION=$(amd-smi version 2>/dev/null | grep -oP 'ROCm version: \K[\d.]+' || echo "")
-else
-    ROCM_VERSION=""
-fi
+echo "[2/5] Installing MI300X ROCm stack using proven requirements..."
+python -m pip install --upgrade pip wheel
 
-if [ -n "$ROCM_VERSION" ]; then
-    ROCM_MAJOR=$(echo $ROCM_VERSION | cut -d. -f1)
-    ROCM_MINOR=$(echo $ROCM_VERSION | cut -d. -f2)
-    ROCM_TAG="rocm${ROCM_MAJOR}.${ROCM_MINOR}"
-    echo "Detected ROCm version: $ROCM_VERSION -> tag: $ROCM_TAG"
-else
-    echo "Could not detect ROCm version, defaulting to rocm6.2"
-    ROCM_TAG="rocm6.2"
-fi
+# Remove any CUDA packages that might interfere
+echo "[clean] Removing CUDA packages if present..."
+pip uninstall -y torch torchvision torchaudio pytorch-triton triton pynvml torchao xformers llmcompressor || true
 
-echo "[3/6] Installing PyTorch for ROCm ($ROCM_TAG)..."
-pip install --upgrade pip wheel
-pip install torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/$ROCM_TAG"
+# Install ROCm PyTorch and core dependencies
+echo "[install] Installing PyTorch ROCm 6.2..."
+pip install --extra-index-url https://download.pytorch.org/whl/rocm6.2 torch==2.5.1+rocm6.2 torchvision==0.20.1+rocm6.2
 
-echo "[4/6] Installing Unsloth (AMD native)..."
+echo "[install] Installing HuggingFace stack..."
+pip install "transformers>=4.45,<4.60" "datasets>=2.20" "accelerate>=1.0" "peft>=0.13" "trl>=0.12" "huggingface_hub>=0.25"
+
+echo "[install] Installing Unsloth..."
 pip install --no-deps unsloth unsloth-zoo
 pip install --no-deps git+https://github.com/unslothai/unsloth-zoo.git
 pip install "unsloth[amd] @ git+https://github.com/unslothai/unsloth"
 
-echo "[5/6] Installing additional tools..."
-pip install synthetic-data-kit vllm trl accelerate wandb lm-eval datasets peft bitsandbytes
+echo "[install] Installing quantization and tracking..."
+pip install "bitsandbytes>=0.44" wandb pyyaml
 
-echo "[6/6] Verifying installation..."
+echo "[install] Installing data pipeline and eval tools..."
+pip install datasketch text-dedup lm-eval
+
+echo "[install] Installing vLLM for data generation..."
+pip install vllm
+
+# Set ROCm architecture for bitsandbytes
+echo "[3/5] Setting ROCm environment variables..."
+export BNB_ROCM_ARCH=gfx942
+if ! grep -q "BNB_ROCM_ARCH" ~/.bashrc 2>/dev/null; then
+    echo 'export BNB_ROCM_ARCH=gfx942' >> ~/.bashrc
+fi
+
+echo "[4/5] Verifying installation..."
 python << 'PY'
 import torch
 import transformers
@@ -58,9 +61,16 @@ import peft
 print(f"PyTorch version: {torch.__version__}")
 print(f"ROCm/HIP: {torch.version.hip}")
 print(f"CUDA available: {torch.cuda.is_available()}")
+
+# Verify ROCm build
+assert "+rocm" in torch.__version__, f"ERROR: torch is not ROCm build: {torch.__version__}"
+assert torch.version.hip, f"ERROR: torch.version.hip is None: {torch.__version__}"
+assert torch.cuda.is_available(), "ERROR: torch.cuda.is_available() False on ROCm"
+
 if torch.cuda.is_available():
     print(f"Device: {torch.cuda.get_device_name(0)}")
     print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+
 print(f"Transformers: {transformers.__version__}")
 print(f"TRL: {trl.__version__}")
 print(f"PEFT: {peft.__version__}")
