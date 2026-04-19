@@ -50,8 +50,9 @@ from _common import push_to_hub, set_global_seed, setup_env_dirs  # noqa: E402
 # -----------------------------------------------------------------------------
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["offline", "online"], default="offline",
-                    help="offline = in-process vllm.LLM; online = HTTP to a running vllm server")
+    ap.add_argument("--mode", choices=["offline", "online", "hf"], default="offline",
+                    help="offline = in-process vllm.LLM; online = HTTP to a running "
+                         "vllm server; hf = plain transformers .generate (no vllm needed)")
     # offline-mode args
     ap.add_argument("--merged_model", default="/scratch/finetune/models/p2_merged",
                     help="Path to merged P2 weights (offline mode)")
@@ -175,6 +176,83 @@ def gen_offline(prompts: list[dict], args) -> list[dict]:
                 "is_evol": seed.get("is_evol", False),
                 "stop_reason": completion.finish_reason,
             })
+    return records
+
+
+def gen_hf(prompts: list[dict], args) -> list[dict]:
+    """HuggingFace `.generate` fallback — no vLLM required.
+
+    Slower than vLLM (~3-5x) because no continuous batching, but works on any
+    ROCm install without dev toolchain. Uses left-padding + manual batching.
+    """
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    print(f"[gen-hf] loading {args.merged_model} (bf16, device_map=auto)")
+    tok = AutoTokenizer.from_pretrained(args.merged_model, padding_side="left")
+    if tok.pad_token_id is None:
+        tok.pad_token_id = tok.eos_token_id
+    model = AutoModelForCausalLM.from_pretrained(
+        args.merged_model,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
+        low_cpu_mem_usage=True,
+    )
+    model.eval()
+
+    rendered = [render_chat_prompt(tok, s["prompt"]) for s in prompts]
+    n_prompts = len(rendered)
+    print(f"[gen-hf] generating {n_prompts} prompts × {args.n_per_prompt} completions "
+          f"(batch_size={args.batch_size})...")
+
+    records: list[dict] = []
+    t0 = time.time()
+    for i in range(0, n_prompts, args.batch_size):
+        batch_prompts = rendered[i : i + args.batch_size]
+        batch_seeds = prompts[i : i + args.batch_size]
+
+        enc = tok(batch_prompts, return_tensors="pt", padding=True,
+                  truncation=True, max_length=args.max_model_len - args.max_new_tokens)
+        enc = {k: v.to(model.device) for k, v in enc.items()}
+        input_lens = enc["input_ids"].shape[1]
+
+        with torch.inference_mode():
+            out = model.generate(
+                **enc,
+                max_new_tokens=args.max_new_tokens,
+                do_sample=True,
+                temperature=args.temperature,
+                top_p=args.top_p,
+                num_return_sequences=args.n_per_prompt,
+                pad_token_id=tok.pad_token_id,
+                eos_token_id=tok.eos_token_id,
+                repetition_penalty=1.05,
+            )
+        # out shape: (batch * n, seq)
+        out = out[:, input_lens:]
+        decoded = tok.batch_decode(out, skip_special_tokens=True)
+
+        for s_idx, seed in enumerate(batch_seeds):
+            for k in range(args.n_per_prompt):
+                completion = decoded[s_idx * args.n_per_prompt + k]
+                records.append({
+                    "prompt": seed["prompt"],
+                    "response": completion.strip(),
+                    "domain": seed["domain"],
+                    "ground_truth": seed.get("ground_truth"),
+                    "is_evol": seed.get("is_evol", False),
+                    "stop_reason": "length_or_eos",
+                })
+
+        done = min(i + args.batch_size, n_prompts)
+        elapsed = time.time() - t0
+        rate = done / max(elapsed, 1)
+        eta_min = (n_prompts - done) / max(rate, 1e-6) / 60
+        print(f"[gen-hf] {done}/{n_prompts} prompts ({rate:.2f}/s, "
+              f"ETA {eta_min:.0f} min, {len(records)} completions so far)")
+
+    print(f"[gen-hf] done in {(time.time() - t0) / 60:.1f} min, "
+          f"{len(records)} completions")
     return records
 
 
@@ -336,8 +414,12 @@ def main() -> None:
     # 2. Generate
     if args.mode == "offline":
         records = gen_offline(seeds, args)
-    else:
+    elif args.mode == "online":
         records = gen_online(seeds, args)
+    elif args.mode == "hf":
+        records = gen_hf(seeds, args)
+    else:
+        raise ValueError(f"unknown mode: {args.mode}")
 
     # 3. Filter
     records = filter_records(records)
